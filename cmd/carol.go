@@ -7,7 +7,7 @@ import (
 
 var showLevel = flag.String("l", "", "显示练习难度, easy; medium; hard")
 var sortByColumn = flag.Int("s", 2, "排序依据, 1:名称; 2:上一次完成时间; 3:完成次数")
-var showLastDoneDaysAgo = flag.Int("d", -1, "显示距离上一次完成练习, 过去了多少天")
+var showLastDoneDaysAgo = flag.Int("d", -1, "指定上一次完成时间范围")
 
 func main() {
 	flag.Parse()

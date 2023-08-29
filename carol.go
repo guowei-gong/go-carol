@@ -2,19 +2,22 @@ package carol
 
 import (
 	"bufio"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 )
 
 // ExerciseBook 练习册用于记录已经完成的练习题, 它的内容格式为 `- Y-m-d: foldName` 如下
 // - 2023-08-29: data_structure
 // - 2023-08-29: concurrency/channel, concurrency/mutex
-const ExerciseBook = "carol.md"
+const ExerciseBook = "exercise_book.md"
 
 type Practice struct {
 	Name      string
@@ -56,6 +59,102 @@ HERE:
 	}
 
 	return existing, nil
+}
+
+// Print 在标准输出中打印与练习题的统计有关的表格, 显示信息如下.
+// 1. 练习题名称
+// 2. 练习的次数
+// 3. 练习题的难度
+// 4. 练习题所属主题
+// 5. 上一次完成练习时间, 以天为单位
+func Print(practices []Practice, lastDoneDaysAgo int, column int, level string) {
+	const format = "%v\t%v\t%5v\t%v\t%v\n"
+
+	// 头部
+	tw := new(tabwriter.Writer).Init(os.Stdout, 0, 8, 2, ' ', 0)
+	fmt.Fprintf(tw, format, "Name", "Last done", "Done", "Level", "Topics")
+	fmt.Fprintf(tw, format, "----", "---------", "----", "-----", "------")
+
+	// 正文
+	var totalCount int
+	var practicesCount int
+
+	sortPractices(practices, &column)
+	for _, p := range practices {
+		if !show(p, lastDoneDaysAgo) {
+			continue
+		}
+		if level != "" && p.Level != level {
+			continue
+		}
+
+		practicesCount++
+		totalCount += p.TimesDone
+
+		fmt.Fprintf(tw, format, p.Name, humanize(p.LastDone), fmt.Sprintf("%dx", p.TimesDone), p.Level, strings.Join(p.Topics, ", "))
+	}
+	// 尾部
+	fmt.Fprintf(tw, format, "----", "", "----", "", "")
+	fmt.Fprintf(tw, format, practicesCount, "", totalCount, "", "")
+
+	tw.Flush()
+}
+
+type customSort struct {
+	practices []Practice
+	less      func(x, y Practice) bool
+}
+
+func (x customSort) Len() int           { return len(x.practices) }
+func (x customSort) Less(i, j int) bool { return x.less(x.practices[i], x.practices[j]) }
+func (x customSort) Swap(i, j int)      { x.practices[i], x.practices[j] = x.practices[j], x.practices[i] }
+
+// 根据 column 对结果集进行排序, 次要排序使用练习题名称
+func sortPractices(practices []Practice, column *int) {
+	sort.Sort(customSort{practices, func(x, y Practice) bool {
+		switch *column {
+		case 1:
+			if x.Name != y.Name {
+				return x.Name < y.Name
+			}
+		case 2:
+			if x.LastDone != y.LastDone {
+				return x.LastDone.After(y.LastDone)
+			}
+		case 3:
+			if x.TimesDone != y.TimesDone {
+				return x.TimesDone > y.TimesDone
+			}
+		default:
+
+		}
+		if x.Name != y.Name {
+			return x.Name < y.Name
+		}
+		return false
+	}})
+}
+
+// show 根据时间过滤练习题
+func show(p Practice, lastDoneDaysAgo int) bool {
+	if lastDoneDaysAgo < 0 {
+		return true
+	}
+	t := time.Now().Add(-time.Hour * 24 * time.Duration(lastDoneDaysAgo+1))
+	return p.LastDone.After(t)
+}
+
+// humanize 格式化为符合人类阅读习惯的时间
+func humanize(lastDone time.Time) string {
+	if lastDone.IsZero() {
+		return "never"
+	}
+	daysAgo := int(time.Since(lastDone).Hours() / 24)
+	w := "day"
+	if daysAgo != 1 {
+		w += "s"
+	}
+	return fmt.Sprintf("%d %s ago", daysAgo, w)
 }
 
 // getExisting 获取已存在的所有编程题

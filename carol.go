@@ -6,9 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// ExerciseBook 练习册用于记录已经完成的练习题, 它的内容格式为 `- Y-m-d: foldName` 如下
+// - 2023-08-29: data_structure
+// - 2023-08-29: concurrency/channel, concurrency/mutex
+const ExerciseBook = "carol.md"
 
 type Practice struct {
 	Name      string
@@ -25,7 +31,31 @@ func Get() ([]Practice, error) {
 		return nil, err
 	}
 
-	// TODO: 解析题目完成记录文件
+	// 解析题目完成记录文件
+	done, err := getDone()
+	if err != nil {
+		return nil, err
+	}
+
+HERE:
+	for _, d := range done {
+		for _, e := range existing {
+			if d.Name == e.Name {
+				continue HERE
+			}
+		}
+	}
+
+	for i := range existing {
+		for j := range done {
+			if existing[i].Name == done[j].Name {
+				existing[i].TimesDone = done[j].TimesDone
+				existing[i].LastDone = done[j].LastDone
+			}
+		}
+	}
+
+	return existing, nil
 }
 
 // getExisting 获取已存在的所有编程题
@@ -134,4 +164,63 @@ func grepTopics(line string) []string {
 	}
 
 	return topics
+}
+
+// getDone 从 Carol 中返回已完成的练习题
+func getDone() ([]Practice, error) {
+	var result []Practice
+
+	f, err := os.Open(ExerciseBook)
+	if err != nil {
+		return nil, err
+	}
+
+	bookLineRE := regexp.MustCompile(`^\s*\*\s*([0-9]{4}\-[0-9]{2}\-[0-9]{2}):\s*(.+)$`)
+	comaRE := regexp.MustCompile(`\s*,\s*`)
+
+	practices := make(map[string]Practice)
+
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		lineParts := bookLineRE.FindStringSubmatch(s.Text())
+		if lineParts == nil {
+			continue
+		}
+
+		date, practiceStr := lineParts[1], lineParts[2]
+		doneOn, err := time.Parse("2006-01-02", date)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, name := range comaRE.Split(practiceStr, -1) {
+			if name == "" {
+				continue
+			}
+
+			name = strings.TrimSpace(name)
+
+			if practice, ok := practices[name]; ok {
+				practice.TimesDone++
+				if doneOn.After(practice.LastDone) {
+					practice.LastDone = doneOn
+				}
+				practices[name] = practice
+			} else {
+				practice.Name = name
+				practice.TimesDone = 1
+				practice.LastDone = doneOn
+				practices[name] = practice
+			}
+		}
+	}
+	if s.Err() != nil {
+		return nil, s.Err()
+	}
+
+	for name := range practices {
+		result = append(result, practices[name])
+	}
+
+	return result, nil
 }
